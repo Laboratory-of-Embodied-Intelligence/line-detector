@@ -115,7 +115,7 @@ def hist_eq(img, alpha = 4.0, kernel = (5, 5)):
 
 def get_rectangles_ratio(img):
     size = (img.shape[1], img.shape[0])
-    img = cv2.warpPerspective(img, M, IMG_SIZE, flags=cv2.INTER_LINEAR)
+    #img = cv2.warpPerspective(img, M, IMG_SIZE, flags=cv2.INTER_LINEAR)
     L, a, b = cv2.split(img)
 
     _, thresh_b = cv2.threshold(b, 180, 255, cv2.THRESH_BINARY)
@@ -188,23 +188,43 @@ def get_rectangles_area(img):
 def get_RGB_image(msg):
 
     img = bridge.imgmsg_to_cv2(msg)
-    img_lab = hist_eq(img, alpha = 5.0)
+    #img_lab = hist_eq(img, alpha = 5.0)
+    img = cv2.GaussianBlur(img,(5,5),0)
+    img_lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+    L, a, b = cv2.split(img_lab)
+    #segmented_img_ratio = get_rectangles_ratio(dp(img_lab))
+    #segmented_img_area = get_rectangles_area(dp(img_lab))
 
-    segmented_img_ratio = get_rectangles_ratio(dp(img_lab))
-    segmented_img_area = get_rectangles_area(dp(img_lab))
+    #new_segm_msg_ratio = bridge.cv2_to_imgmsg( segmented_img_ratio, "bgr8")
+    #new_segm_msg_area = bridge.cv2_to_imgmsg( segmented_img_area, "bgr8")
 
-    new_segm_msg_ratio = bridge.cv2_to_imgmsg( segmented_img_ratio, "bgr8")
-    new_segm_msg_area = bridge.cv2_to_imgmsg( segmented_img_area, "bgr8")
-    yellow_line_ratio.publish(new_segm_msg_ratio)
-    yellow_line_area.publish(new_segm_msg_area)
+    _, thresh_b = cv2.threshold(b, 140, 255, cv2.THRESH_BINARY)
+
+    ch_L = bridge.cv2_to_imgmsg( L, "mono8")
+    ch_b = bridge.cv2_to_imgmsg( thresh_b, "mono8")
+    ch_a = bridge.cv2_to_imgmsg( a, "mono8")
+
+    #yellow_line_ratio.publish(new_segm_msg_ratio)
+    #yellow_line_area.publish(new_segm_msg_area)
+
+    channel_L.publish(ch_L)
+    channel_b.publish(ch_b)
+    channel_a.publish(ch_a)
 
 
 if __name__ == '__main__':
     bridge = CvBridge()
 
     rospy.init_node("rgb_to_cie", log_level=rospy.INFO)
+    #yellow_line_ratio = rospy.Publisher("yellow_line_ratio", Image, queue_size=10)
+    #yellow_line_area = rospy.Publisher("yellow_line_area", Image, queue_size=10)
+    #yellow_line_area = rospy.Publisher("yellow_line_area", Image, queue_size=10)
+
+    channel_L = rospy.Publisher("channel_L", Image, queue_size=10)
+    channel_b = rospy.Publisher("channel_b", Image, queue_size=10)
+    channel_a = rospy.Publisher("channel_a", Image, queue_size=10)
+
     rospy.Subscriber(IMAGE_TOPIC, Image, get_RGB_image)
-    yellow_line_ratio = rospy.Publisher("yellow_line_ratio", Image, queue_size=10)
-    yellow_line_area = rospy.Publisher("yellow_line_area", Image, queue_size=10)
+
     while not rospy.is_shutdown():
         rospy.spin()
