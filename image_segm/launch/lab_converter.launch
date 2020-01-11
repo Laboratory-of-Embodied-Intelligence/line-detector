@@ -1,4 +1,0 @@
-<launch>
-  <node name="rgb_to_cie" pkg="image_segm" type="cielab_test.py" output="screen" />
-  <node name="republish_rgb" type="republish" pkg="image_transport" args="compressed in:=/duckiebotPI4/camera_node/image raw out:=/rgb_image" />
-</launch>
