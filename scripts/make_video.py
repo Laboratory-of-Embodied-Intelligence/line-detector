@@ -15,6 +15,18 @@ from copy import deepcopy as dp
 import matplotlib 
 
 matplotlib.use('Agg')
+
+def colorize_threshold(th_img, clr_img):
+    """
+        Take thresholded image and colorized one and combine them in the way
+        that where is 1 on thresholded image will be color from original one and where is 0 remains 0
+    """
+    new_img = copy.deepcopy(clr_img)
+    mask = th_img==255
+    new_img[~mask] = 0
+    
+    return new_img
+
 def imgShow(img):
     plt.imshow(img, cmap="gray")
     plt.xticks([]), plt.yticks([])
@@ -77,7 +89,7 @@ def clusterize(input_img, color):
     thresh_input = copy.deepcopy(input_img)
     #color_input = cv2.cvtColor(thresh_input, cv2.COLOR_GRAY2BGR)
     maxpoints=250000
-    proxthresh=0.1
+    proxthresh=0.01
 
     binimg = thresh_input
     imgShow(binimg)
@@ -93,7 +105,7 @@ def clusterize(input_img, color):
     pixproxthr = proxthresh * sqrt(binimg.shape[0]**2 + binimg.shape[1]**2)
 
 
-    hdb = hdbscan.HDBSCAN(min_cluster_size=10,min_samples=50, cluster_selection_epsilon=pixproxthr).fit(Xslice)
+    hdb = hdbscan.HDBSCAN(min_cluster_size=30,min_samples=200, cluster_selection_epsilon=pixproxthr, core_dist_n_jobs=-1).fit(Xslice)
     labels = hdb.labels_.astype(int)
     n_clusters_ = len(set(labels)) - (1 if -1 in labels else 0)
     n_noise_ = list(labels).count(-1)
@@ -111,15 +123,26 @@ def clusterize(input_img, color):
     plot1.axis('off')
     
     clusterer = hdb
-    color_palette = sns.color_palette('deep', 8)
-   
-    cluster_colors = [color_palette[x] if x >= 0
-                  else (0.5, 0.5, 0.5)
-                  for i, x in enumerate(clusterer.labels_)]
+    color_palette = sns.color_palette('deep', 32)#len(np.unique(clusterer.labels_)))
+    if len(clusterer.labels_) == 0:
+        return img
+    #print(clusterer.labels_)
+    #print(len(clusterer.labels_))
+    prob_mask = clusterer.probabilities_ >= 1
+    print(prob_mask.shape)
+    print(clusterer.labels_.shape)
+    clusterer.labels_ = clusterer.labels_[prob_mask]
+    X = X[prob_mask]
 
+    cluster_colors = np.array([color_palette[x] if x >= 0
+                  else (0.5, 0.5, 0.5)
+                  for i, x in enumerate(clusterer.labels_)])
+
+   
     cluster_member_colors = [sns.desaturate(x, p)
                              for x, p in
                          zip(cluster_colors, clusterer.probabilities_)]
+    
     
     
     plot1.scatter(X[:,1],X[:,0], s=50, linewidth=0, c=cluster_member_colors, alpha=1)
@@ -152,16 +175,20 @@ def makeVideo(filename, output):
     fourcc = cv2.VideoWriter_fourcc(*'XVID')
     
     cap = cv2.VideoCapture( filename + ".avi" )
-    res_l = cv2.VideoWriter(output + "_l.avi" ,fourcc, 20.0, (240,140))
-    res_b = cv2.VideoWriter(output + "_b.avi" ,fourcc, 20.0, (240,140))
-    res_otsu = cv2.VideoWriter(output + "_o.avi" ,fourcc, 20.0, (240,140))
-    res_mask = cv2.VideoWriter(output + "_m.avi" ,fourcc, 20.0, (240,140))
+    ret, frame = cap.read()
+
+    scale = 0.3
+    size = 1920, 1080
+    res_l = cv2.VideoWriter(output + "_l.avi" ,fourcc, 20.0, size)
+    res_b = cv2.VideoWriter(output + "_b.avi" ,fourcc, 20.0, size)
+    res_otsu = cv2.VideoWriter(output + "_o.avi" ,fourcc, 20.0, size)
+    res_mask = cv2.VideoWriter(output + "_m.avi" ,fourcc, 20.0, size)
     
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
-        l, _, b = cv2.split(frame[220:,200:440 ])
+        l, _, b = cv2.split(frame[650:800, 200:1700])
     
         mean, dev = cv2.meanStdDev( l )
         mean = mean[0]
@@ -182,24 +209,45 @@ def makeVideo(filename, output):
         #thresh_hel = cv2.resize(thresh_hel, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
         #road = cv2.resize(road, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
         thresh_hel = white
-        road = frame[220:, 200:440]
-        mask = clusterize(thresh_hel, road)
+
+        road = frame[650:800, 200:1700]
+        clr_thresh = colorize_threshold(thresh_hel, road)
+
+
+        clr_thresh = cv2.resize(clr_thresh, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        road = cv2.resize(road, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+
+
+        mask = clusterize(clr_thresh, road)
         mask = cv2.resize(mask, (road.shape[1], road.shape[0]))
         
         white = cv2.cvtColor(white, cv2.COLOR_GRAY2BGR)
+
+        
+        comb = np.hstack((clr_thresh, mask))
+        cv2.imshow('win', comb)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+        comb = cv2.resize(comb, size)
+        white = cv2.resize(white, size)
+        yellow = cv2.resize(yellow, size)
+        otsu = cv2.resize(otsu, size)
         res_l.write(white)
         res_b.write(yellow)
         res_otsu.write(otsu)
-        res_mask.write(mask)
+        res_mask.write(comb)
     
     res_l.release()
     res_b.release()
     res_otsu.release()
     cap.release()
+    cv2.destroyAllWindows()
     
 video_path_res = "../images/video/res/"
 video_path_clips = "../images/video/clips/"
 
+makeVideo(video_path_clips + 'IMG_0252', video_path_res + 'comb')
 makeVideo(video_path_clips + 'bright', video_path_res + 'bright')
 makeVideo(video_path_clips + 'cloudy', video_path_res + 'cloudy')
 makeVideo(video_path_clips + 'pale', video_path_res + 'pale')
